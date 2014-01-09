@@ -1,0 +1,24 @@
+{
+	"name": "csh-soap-server",
+	"version": "0.0.1",
+	"author": "Gerard Geer",
+	"description": "A Node.js based server for handling S.O.A.P. operations.",
+	"contributors": [
+		{
+			"name": "Gerard Geer",
+			"email": "gman@csh.rit.edu"
+		}
+	],
+	"scripts": {
+		"start": "node ./soapserver.js"
+	},
+	"main": "./soapserver.js",
+	"dependencies": {
+		"redis": "0.9.2",
+		"cookies": "0.3.8"
+	},
+	"license": "MIT",
+	"engines": {
+		"node": ">=0.10.22"
+	}
+}
