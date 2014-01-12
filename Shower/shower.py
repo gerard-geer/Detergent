@@ -258,7 +258,7 @@ def getUserPlaylist(user, rHandle):
 	"""
 	# Get the user's Song list, which is really just a list of URLs.
 	l.plog("Querying for "+user+"'s playlist on the Redis database.")
-	return r.get(user+"-playlist")
+	return rHandle.get(user+"-playlist")
 	
 def exitFunction():
 	"""
@@ -295,8 +295,6 @@ def main():
 	
 	# Create a variable to store the serial-read id.
 	id = ''
-	
-	# Populate the ID LUT.
 	
 	# A string storing the current user.
 	curUser = ''

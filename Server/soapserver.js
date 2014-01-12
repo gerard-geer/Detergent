@@ -33,6 +33,8 @@ var authRealm = 'csh.rit.edu';
 var cryptoPW = 'aFF3Ef6q';
 var cryptoType = 'aes-256-cbc';
 
+var listenPort = 3000;
+
 /*
 	Loads static files from the given path, and pipe-writes them 
 	to the response based on the given MIME type.
@@ -506,4 +508,7 @@ var server = http.createServer(function(req, res) {
 	}
 });
 // Set shit in motion.
-server.listen(80);
+server.listen(listenPort, function(){
+	console.log("Server listening on:");
+	console.log(server.address())
+});
