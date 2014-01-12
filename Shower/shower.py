@@ -257,8 +257,17 @@ def getUserPlaylist(user, rHandle):
 	
 	"""
 	# Get the user's Song list, which is really just a list of URLs.
-	l.plog("Querying for "+user+"'s playlist on the Redis database.")
-	return rHandle.get(user+"-playlist")
+	print("Querying for "+user+"'s playlist on the Redis database.")
+	
+	response =rHandle.lrange(user+"-playlist", 0, -1)
+	
+	# The response is a 'bytes' instance.
+	responseBytes = response[0]
+	responseString = ''
+	for b in responseBytes:
+		responseString += chr(b)
+	
+	return responseString.split(",")
 	
 def exitFunction():
 	"""
