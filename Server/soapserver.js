@@ -9,10 +9,7 @@
 var http = require('http');
 var fs = require('fs');
 var qs = require('querystring');
-var crypto = require('crypto');
 var redis = require('redis');
-var Cookies = require('cookies');
-//var krb5 = require('node-krb5');
 
 // Print a glorious banner.
 process.stdout.write( 
@@ -22,18 +19,20 @@ process.stdout.write(
 "* ---------------------------------------------------------- *\n"+
 "**************************************************************\n");
 
+// Redis properties.
 var redis_host = '127.0.0.1';
 var redis_port = 6379;
 var redis_pw = 'shitty_password';
 
+// The Redis playlist delimiter. 
 var playlistDelim = '-playlist';
 
-var authRealm = 'csh.rit.edu';
-
+// Basic crypto shit.
 var cryptoPW = 'aFF3Ef6q';
 var cryptoType = 'aes-256-cbc';
 
-var listenPort = 3000;
+// Port to listen on.
+var listenPort = 1434;
 
 /*
 	Loads static files from the given path, and pipe-writes them 
@@ -87,11 +86,8 @@ function serveDynamic(res, page, type)
 		Each line of the text area's contents formatted as a list.
 	
 */
-function parseNewPlaylist(res, rawData, cookies)
-{
-	// Get the username from the cookie.
-	var user = fetchAndDecrypt('username', cookies);
-	
+function parseNewPlaylist(res, rawData, user)
+{	
 	// If the user cookie is bad, we serve the error page and
 	// return. Otherwise we parse the playlist.
 	if(user == null || user == '')
@@ -130,99 +126,18 @@ function parseNewPlaylist(res, rawData, cookies)
 		});
 	});
 	
-		
-	
 	serveStatic(res, __dirname+'/webs/updated.html', 'text\html');	
 }
 
 /*
-	Takes the raw authentication input from the appropriate POST
-	request, parses it down, and tries to authenticate the user.
+	Fetches a user's playlist from the Redis database.
+	It is assumed that the playlist is stored as a Redis list.
 	
-	Parameters:
-	-res (HTTP Response):	The Node HTTP response stream used by
-							by the current request.
+	The key used to access the database is the user's username
+	concatenated with the global playlist delimiter.
 	
-	-rawData(String):	The credentials received through the 
-						log-in form.
-					
-	-cookies(Cookies):	The Cookies instance used to store and read
-		client-side cookies.
-*/
-function authenticate(res, rawData, cookies)
-{
-	var data = qs.parse(rawData);
-	
-	var user = data.input_user;
-	
-	//krb5.authenticate(user+'@'+authRealm, data.input_pw, function(err){
-	var err = false;
-		if(err)
-		{
-			console.log("invalid credentials tried.");
-			serveStatic(res, __dirname+'/webs/invalid.html', 'text/html');
-		}
-		else
-		{
-			console.log(user+" has logged in.");
-			encryptAndStore(user, 'username', cookies);
-			prepareMainPage(res, user);
-		}
-	//});
-	
-	
-}
-
-/*
-	Encrypts a value, and stores it as a cookie at the given key, with the given
-	Cookies instance.
-	
-	Parameters:
-		-value (String): 	The value to encrypt.
-		
-		-key (String):	The name of the cookie.
-		
-		-cookies (Cookies):	The Cookies instance to use for cookie storage.
-*/
-function encryptAndStore(value, key, cookies)
-{
-	var cipher = crypto.createCipher(cryptoType, cryptoPW);
-	var encrypted = cipher.update(value, 'utf8', 'hex');
-	encrypted += cipher.final('hex');
-	cookies.set(key, encrypted);
-}
-
-/*
-	Decrypts a cookie stored at the given key, retrieved by the given Cookies
-	instance.
-	
-	Parameters:
-		-key (String):	The name of the cookie.
-		
-		-cookies (Cookies):	The Cookies instance to use for cookie storage.
-	
-	Returns:
-		-The decrypted value of the cookie.
-*/
-function fetchAndDecrypt(key, cookies)
-{
-	try{
-		var encrypted = cookies.get(key);
-		var decipher = crypto.createDecipher(cryptoType, cryptoPW);
-		var decrypted = decipher.update(encrypted, 'hex', 'utf8');
-		decrypted += decipher.final('utf8');
-		return decrypted;
-	}
-	catch(e)
-	{
-		return null;
-	}
-}
-
-/*
-	Returns a sample playlist. Soon, when we can access the user
-	and have the redis database set up it will query the database
-	and get that user's pre-existing playlist.
+	If the Redis command errors out, the callback is called, but with
+	an empty array instead of appropriate values from the database.
 	
 	Parameters:
 		user (String):	The user that whose playlist is needed.
@@ -240,18 +155,25 @@ function fetchExistingPlaylist(user, doneCallback)
 	// Get the playlist from Redis.
 	process.stdout.write("Fetching "+user+"'s playlist... ");
 	redisClient.lrange(user+playlistDelim, 0, -1, function(err, reply){
-		var stringReply = String(reply);
-		var elements = stringReply.split(',');
-		process.stdout.write("...done.\n");
-		doneCallback(elements);
+		if(err)
+		{
+			process.stdout.write("...Error fetching playlist! "+err);
+			doneCallback(new Array());
+		}
+		else
+		{
+			var stringReply = String(reply);
+			var elements = stringReply.split(',');
+			process.stdout.write("...done.\n");
+			doneCallback(elements);
+		}
 	});
-	return playlist;
 }
 	
 /*
 	Appends the current playlist as an invisible paragraph at the
-	end of the page. Janky as fuck? Yes. More stable than server-side
-	JQuery? Also yes.
+	end of the page. Janky as fuck? Yes. More stable and supported
+	than server-side JQuery? Also yes.
 	
 	Parameters:
 		page (String):	The raw HTML String that represents the webpage
@@ -294,7 +216,8 @@ function appendPlaylist(page, playlist)
 
 /*
 	Appends the current user's user name as an invisible paragraph at the
-	end of the page.
+	end of the page. Yet again, less kosher and more supported than server
+	side JQuery DOM modification.
 	
 	Parameters:
 		page (String):	The raw HTML String that represents the webpage
@@ -363,24 +286,16 @@ function prepareMainPage(res, user)
 		req (Node HTML request):	The HTML request stream.
 		
 		res (Node HTML response):	The HTML response stream.
+		
+		user (String):	The user's username.
 */
-function onGetRequest(req, res, cookies)
+function onGetRequest(req, res, user)
 {
 	// If we go to the base page, we want to present the user with a log-in dialog
 	// if they are not logged in. This requires us to check for our username cookie.
 	if(req.url == '/')
 	{
-		var user = fetchAndDecrypt('username', cookies);
-		
-		if(user == '' || user == null)
-		{
-			serveStatic(res, __dirname +'/webs/auth.html', 'text/html');
-		}
-		else
-		{
-			console.log(user+" has returned with their cookie intact.");
-			prepareMainPage(res, user);
-		}
+		prepareMainPage(res, user);
 	}
 	// CSS documents.
 	else if(req.url.substr(0, 4) == '/css' && req.url.substr(-4) == '.css')
@@ -414,8 +329,10 @@ function onGetRequest(req, res, cookies)
 		req (Node HTML request):	The HTML request stream.
 		
 		res (Node HTML response):	The HTML response stream.
+		
+		user (String):	The user's user-name.
 */
-function onPostRequest(req, res, cookies)
+function onPostRequest(req, res, user)
 {
 	// Make sure that the post request has the right URL.
 	if(req.url == '/update')
@@ -430,36 +347,8 @@ function onPostRequest(req, res, cookies)
 		// When the last chunk is received we serve back the main 
 		// website and parse the playlist data.
 		req.on('end', function(){
-							parseNewPlaylist(res, data, cookies);
+							parseNewPlaylist(res, data, user);
 						});
-	}
-	// Test the credentials given by the user.
-	else if(req.url == '/auth')
-	{
-		// The data sent in the Post request.
-		var data = '';
-		
-		// Accumulate the auth form data.
-		req.on('data', function(chunk){
-							data+=chunk;
-						});
-		// When the last chunk is received we authenticate the user.
-		req.on('end', function(){
-							authenticate(res, data, cookies);
-						});
-	}
-	// Clear out the user's cookie upon logout.
-	else if(req.url == '/logout')
-	{
-		var user = fetchAndDecrypt('username', cookies);
-		
-		if(user == '' || user == null)
-			console.log("A user has logged out, but they corrupted their cookie somehow during use.");
-		else
-			console.log(user+" has logged out.");
-			
-		cookies.set('username', null);
-		serveStatic(res, __dirname +'/webs/auth.html', 'text/html');
 	}
 		
 	// Sketchy post requests get ditched.
@@ -475,30 +364,29 @@ function onPostRequest(req, res, cookies)
 var redisClient = redis.createClient(redis_port, redis_host);
 redisClient.auth(redis_pw);
 
+// Register the Redis callbacks.
 redisClient.on('error', function (err){
 	console.log('Redis Error: '+err);
 });
-
 redisClient.on('ready', function (){
 	console.log('Redis ready!');
 });
 
-
 // Create the HTTP server, and set up request routing into the routing functions.
 var server = http.createServer(function(req, res) {
-
-	// Create a Cookies instance.
-	cookies = new Cookies(req, res);
+	
+	// Get the username from the http header.
+	var user = req["headers"]["x-webauth-user"];
 	
 	// Send GET requests to the GET router.
 	if(req.method == 'GET')
 	{
-		onGetRequest(req, res, cookies);
+		onGetRequest(req, res, user);
 	}
 	// Send POST requests to the POST router.
 	else if(req.method == 'POST')
 	{
-		onPostRequest(req, res, cookies);
+		onPostRequest(req, res, user);
 	}
 	// Anything else gets tossed by the wayside.
 	else
@@ -507,6 +395,7 @@ var server = http.createServer(function(req, res) {
 		res.end('Not found');
 	}
 });
+
 // Set shit in motion.
 server.listen(listenPort, function(){
 	console.log("Server listening on:");

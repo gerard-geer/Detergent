@@ -35,7 +35,7 @@ import serial
 import logger
 from os import system
 import sys
-from CSHLDAP import CSHLDAP
+import CSHLDAP
 import thread
 
 # The message logger.
@@ -261,13 +261,14 @@ def getUserPlaylist(user, rHandle):
 	
 	response =rHandle.lrange(user+"-playlist", 0, -1)
 	
-	# The response is a 'bytes' instance.
-	responseBytes = response[0]
-	responseString = ''
-	for b in responseBytes:
-		responseString += chr(b)
+	# If the user does not exist then the response will be null.
+	if not response:
+		return []
 	
-	return responseString.split(",")
+	# The response is a 'bytes' instance, in a 1-element list.
+	responseBytes = response[0]
+	
+	return responseBytes.split(",")
 	
 def exitFunction():
 	"""
