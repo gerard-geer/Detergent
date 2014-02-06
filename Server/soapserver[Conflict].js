@@ -27,21 +27,12 @@ var redis_pw = 'shitty_password';
 // The Redis playlist delimiter. 
 var playlistDelim = '-playlist';
 
+// Basic crypto shit.
+var cryptoPW = 'aFF3Ef6q';
+var cryptoType = 'aes-256-cbc';
+
 // Port to listen on.
 var listenPort = 1434;
-
-/*
-	Returns a formatted date string based on the given Date object.
-	
-	Returns:
-		A datestring formatted like so: MM-DD-YYY HH:MM:SS.SSS
-*/
-function timestamp()
-{
-	var date = new Date();
-	return ""+(date.getMonth()+1)+"-"+date.getDate()+"-"+date.getFullYear()+" "+
-				date.getHours()+":"+date.getMinutes()+":"+date.getSeconds()+"."+date.getMilliseconds();
-}
 
 /*
 	Loads static files from the given path, and pipe-writes them 
@@ -101,7 +92,7 @@ function parseNewPlaylist(res, rawData, user)
 	// return. Otherwise we parse the playlist.
 	if(user == null || user == '')
 	{
-		console.log("ERROR: bad user when updating playlist. "+timestamp());
+		console.log("ERROR: bad user when updating playlist.");
 		serveStatic(res, __dirname+'/webs/error.html', 'text\html');
 		return;
 	}
@@ -123,12 +114,12 @@ function parseNewPlaylist(res, rawData, user)
 	}
 	
 	// Log the newly parsed playlist to make sure things lined up.
-	console.log("fresh playlist (user: "+user+") ("+timestamp()+"): ");
+	console.log("fresh playlist (user: "+user+"): ");
 	console.log(playlist);
 	
 	
 	// Send the playlist to redis.
-	process.stdout.write("Storing "+user+"'s playlist ("+timestamp()+")... ");
+	process.stdout.write("Storing "+user+"'s playlist... ");
 	redisClient.del(user+playlistDelim, function(){
 		redisClient.lpush(user+playlistDelim, playlist, function(){
 			process.stdout.write("...done.\n");
@@ -162,8 +153,7 @@ function fetchExistingPlaylist(user, doneCallback)
 	var playlist = new Array();
 	
 	// Get the playlist from Redis.
-	var date = new Date();
-	process.stdout.write("Fetching "+user+"'s playlist ("+timestamp()+")... ");
+	process.stdout.write("Fetching "+user+"'s playlist... ");
 	redisClient.lrange(user+playlistDelim, 0, -1, function(err, reply){
 		if(err)
 		{
