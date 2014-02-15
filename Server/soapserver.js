@@ -106,14 +106,8 @@ function parseNewPlaylist(res, rawData, user)
 		return;
 	}
 	
-	// Parse the raw post request into a JSON object.
-	var data = qs.parse(rawData);
-	
-	// Strip down to only the input from the text area.
-	data = data.input_textarea;
-	
 	// Split the data into separate URLs.
-	data = data.split("\r\n");
+	var data = rawData.split("\r\n");
 	
 	// Get rid of any bad elements.
 	var playlist = new Array();

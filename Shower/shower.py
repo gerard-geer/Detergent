@@ -37,6 +37,7 @@ from os import system
 import sys
 import CSHLDAP
 import thread
+import json
 
 # The message logger.
 print("Creating logger")
@@ -50,23 +51,11 @@ localPlaylist = ['http://www.csh.rit.edu/~gman/soap/dbsrv-ashes-to-ashes.mp3', \
 # Whether or not audio is being played.
 playing = False
 
-# Whether or not to continue the debug input loop.
-debug = True
-
-
 # Redis server hostname and other parameters
-redis_host = '120.0.0.7'
+redis_host = 'soap.csh.rit.edu'
 redis_port = 6379
-redis_db = 0
 redis_pw = 'shitty_password'
 
-# Global Redis handle.
-p.log("Creating Redis connection.")
-r = redis.StrictRedis(host=redis_host, port=redis_port, db=redis_db, pw=redis_pw)
-if r == None:
-	l.plog("Could not create Redis client.")
-	input("Press any key to exit")
-	sys.exit()
 
 # LDAP credentials
 ldap_username = 'username'
@@ -79,66 +68,6 @@ if ser == None:
 	l.plog("  Could not create serial connection.")
 	input("Press any key to exit.")
 	sys.exit()
-
-def getUserInput():
-	"""
-	The main execution function of the user input thread. It just quietly
-	waits until the user enters a valid choice. By setting the global
-	variable 'debug' to False, you can exit this thread.
-	
-	Parameters:
-		-None
-		
-	Returns:
-		-None
-	"""
-	# Flag that we are referring to the global 'debug' variable.
-	global debug
-	
-	# As long as the debug input flag is set we'll wait for user input.
-	while debug:
-	
-		# We can't just let the user press enter. That will give us invalid input.
-		while choice == None or len(choice)<1:
-			choice = raw_input()
-		
-		# Check for the local playlist option. (The letter 'l' for "local")
-		if(choice[0] == 'l' or choice[0] == 'L'): 
-		
-			if not playing:
-			
-				l.plog("Playing default local playlist!!!")
-				
-				l.plog("Spooling up playlist thread")
-				thread.start_new_thread( playPlaylist, (localPlaylist, 'default') )
-				
-			else:
-			
-				killPlaylistThread()
-				
-		# Check for the Redis playlist option. (The letter 'r' for "Redis")
-		if(choice[0] == 'r' or choice [0] == 'R'):
-		
-			if not playing:
-			
-				l.plog("Getting and playing default Redid playlist!!!")
-				playlist = getUserPlaylist('default', r)
-				
-				l.plog("Spooling up playlist thread")
-				thread.start_new_thread( playPlaylist, (playlist, 'default') )
-				
-			else:
-			
-				killPlaylistThread()
-		
-		# Check for the option that quits debug input. ('d' for 'debug')
-		if(choice[0] == 'd' or choice[0] == 'd'):
-			debug = False
-		
-		# Check for the option that quits altogether. ('q' for 'quit')
-		if(choice[0] == 'q' or choice[0] == 'Q'):
-			sys.exit()
-			
 	
 def startSox(url):
 	"""
@@ -151,40 +80,22 @@ def startSox(url):
 	Returns:
 		-None
 	"""
-	system("sox -q "+url+" -d");
-
-def playPlaylist(url_list, user):
-	"""
-	Iterates through a given playlist of audio URLs,
-	playing each.
+	system("sox -q "+url+" -d")
 	
-	This function is meant to be run in its own thread.
+def exitFunction():
+	"""
+	A callback for when the program exits. It cleans up threads, etc.
 	
 	Parameters:
-		-url_list (Set of Strings):	A list of audio URLs.
-		
-		-user (String):	The current user, for logging purposes.
+		-None
 		
 	Returns:
 		-None
 	"""
-	l.plog("--Starting "+user+"'s playlist.")
-	l.plog("--Length: "+len(url_list)+" songs")
-	
-	# State that we're playing the music!
-	global playing
-	playing = True
-	
-	# Iterate through every URL, pumping it through SoX.
-	for i in range(len(url_list)):
-		if not playing: return
-		l.plog("--Starting song # "+str(i)+" of "+str(len(url_list)))
-		l.plog("--URL: "+url_list[i])
-		startSox(url)
-		
-	l.plog("--Finished playlist.")
-	
-	playing = False
+	print("Exiting program. Cleaning up threads.")
+	killPlaylistThread()
+	global debug
+	debug = False
 
 def killPlaylistThread():
 	"""
@@ -205,43 +116,28 @@ def killPlaylistThread():
 	global playing
 	playing = False
 	
-	
-def getUserDictionary():
+def getUsername(ibuttonID):
 	"""
-	Creates a dictionary of user names indexed by user ID.
+	Returns a user's username based on their iButton ID.
 	
 	Prerequisites:
-		-Able to log into LDAP, and the LDAP database contains 
-		userID attributes.
-	
+		-The ibutton2uid script on totoro isn't dead.
+		
 	Parameters:
-		-None
+		-ibuttonID (String): 	The read iButtonID.
 	
 	Returns:
-		-A dictionary whose keys are userIDs (iButtonIDs) and 
-		values are user-names.
+		The username, if the iButton ID is valid and found,
+		or None otherwise.
 	"""
-	# Open up a connection to LDAP.
-	l.plog("Opening LDAP connection...")
-	ldap = CSHLDAP('mickey', 'mcdick')
-	if ldap == None:
-		l.plog("Could not establish LDAP connection.")
-		input("Press any key to exit.")
-		sys.exit()
-	
-	# Get all them members.
-	members = ldap.members()
-	
-	# Create an empty dictionary to store all the pairs.
-	memberDict = {}
-	
-	# Go through each member returned and give them an entry 
-	# into the dictionary.
-	for member in members:
-		memberDict[ member[1]["ibutton"] ] = member[1]["uid"]
-	
-	# Return the dictionary.
-	return memberDict
+	req = urllib2.Request("http://totoro.csh.rit.edu:56124/?ibutton="+ibuttonID)
+	res = urllib2.urlopen(req)
+	uid = res.read()
+	try:
+		uid = json.loads(uid)
+		return uid['username']
+	except:
+		return None
 	
 def getUserPlaylist(user, rHandle):
 	"""
@@ -268,23 +164,63 @@ def getUserPlaylist(user, rHandle):
 	# The response is a 'bytes' instance, in a 1-element list.
 	responseBytes = response[0]
 	
-	return responseBytes.split(",")
+	return responseBytes.split(",")	
 	
-def exitFunction():
+def playPlaylist(url_list, user):
 	"""
-	A callback for when the program exits. It cleans up threads, etc.
+	Iterates through a given playlist of audio URLs,
+	playing each.
+	
+	This function is meant to be run in its own thread.
 	
 	Parameters:
-		-None
+		-url_list (Set of Strings):	A list of audio URLs.
+		
+		-user (String):	The current user, for logging purposes.
 		
 	Returns:
 		-None
 	"""
-	print("Exiting program. Cleaning up threads.")
-	killPlaylistThread()
-	global debug
-	debug = False
+	l.plog("--Starting "+user+"'s playlist.")
+	l.plog("--Length: "+len(url_list)+" songs")
 	
+	# Iterate through every URL, pumping it through SoX.
+	for i in range(len(url_list)):
+		if not playing: return
+		l.plog("--Starting song # "+str(i)+" of "+str(len(url_list)))
+		l.plog("--URL: "+url_list[i])
+		startSox(url)
+		
+	l.plog("--Finished playlist.")
+
+def handleUser(username):
+	"""
+	The main function of the per-playlist-request worker thread.
+	Fetches the user's playlist from the database and play it.
+	
+	Parameters:
+		username(String):	The username of the current user.
+	
+	Prerequisites:
+		The redis database is up.
+		
+	"""
+	
+	# State that we're playing the music!
+	global playing
+	playing = True
+	
+	# Create Redis handle.
+	p.log("Creating Redis connection.")
+	r = redis.StrictRedis(host=redis_host, port=redis_port, pw=redis_pw)
+	if r == None:
+		l.plog("Could not create Redis client.")
+		playing = False
+		return
+	
+	playlist = getUserPlaylist(user, r)
+	playPlaylist(playlist, user)
+	playing = False
 
 def main():
 	"""
@@ -294,10 +230,7 @@ def main():
 	print("*                    CSH SOAP Shower Client                  *")
 	print("* Letting you scrub-a-dub-dub with a wub-wub-wub since 2014. *")
 	print("* ---------------------------------------------------------- *")
-	print("* Press r to pull and play a debug playlist from Redis       *")
-	print("* Press l to play the local debug playlist (no use of Redis) *")
-	print("* Press d to kill the debug input thread                     *")
-	print("* Press q to exit the shower client completely.              *")
+	print("* Press q to exit the shower client.                         *")
 	print("**************************************************************")
 	
 	# Register the exit clean-up callback.
@@ -308,14 +241,6 @@ def main():
 	
 	# A string storing the current user.
 	curUser = ''
-
-	# A dictionary that serves as a LUT for
-	# user iButton IDs to user names.
-	idLUT  = getUserDictionary();
-	
-	# Start up the debug input thread.
-	l.plog("Starting debug input thread...");
-	thread.start_new_thread( getUserInput, None )
 	
 	# Open and verify serial port.
 	l.plog("Opening serial connection...")
@@ -343,8 +268,8 @@ def main():
 		l.plog("iButton read: "+id)
 		
 		# plug it in to the dictionary so that we can the the user-name.
-		member = members[id]
-		if member == None:
+		member = getUsername(id)
+		if member == None or member == '':
 			l.plog("Invalid iButton ID, or user is not in the system.")
 		else:
 			l.plog("Corresponding member: "+member)
@@ -353,14 +278,9 @@ def main():
 			# Update the current user.
 			curUser = member
 			l.plog(curUser+" is starting their playlist!!!")
-			
-			#Get the current user's playlist.
-			l.plog("Getting "+curUser+"'s playlist from Redis")
-			playlist = getUserPlaylist(curUser, r);
-			
 			# Create the playlist thread for this user.
 			l.plog("Spooling up playlist thread")
-			thread.start_new_thread( playPlaylist, (playlist, user) )
+			thread.start_new_thread( handleUser, (user,) )
 		
 		else:
 			# If the current user is re-accessing the system it means
